@@ -1,0 +1,137 @@
+diff --git a/include/minix/callnr.h b/include/minix/callnr.h
+index 6f145cf..c293098 100644
+--- a/include/minix/callnr.h
++++ b/include/minix/callnr.h
+@@ -65,7 +65,8 @@
+ #define SETGROUPS_O	  66
+ #define GETMCONTEXT       67
+ #define SETMCONTEXT       68
+-
++#define GETSUM            69
++#define GETPPID           70
+ /* Posix signal handling. */
+ #define SIGACTION	  71
+ #define SIGSUSPEND	  72
+diff --git a/kernel/system/do_fork.c b/kernel/system/do_fork.c
+index f309270..4a0800b 100644
+--- a/kernel/system/do_fork.c
++++ b/kernel/system/do_fork.c
+@@ -122,7 +122,7 @@ int do_fork(struct proc * caller, message * m_ptr)
+   rpc->p_seg.p_ttbr = 0;
+   rpc->p_seg.p_ttbr_v = NULL;
+ #endif
+-
++printf("process forked\n");
+   return OK;
+ }
+ 
+diff --git a/servers/pm/Makefile b/servers/pm/Makefile
+index 9065432..85662a6 100644
+--- a/servers/pm/Makefile
++++ b/servers/pm/Makefile
+@@ -4,8 +4,7 @@
+ PROG=	pm
+ SRCS=	main.c forkexit.c break.c exec.c time.c alarm.c \
+ 	signal.c utility.c table.c getset.c misc.c \
+-	profile.c schedule.c
+-
++	profile.c schedule.c getsum.c getppid.c
+ .if ${USE_MCONTEXT} != "no"
+ SRCS+= mcontext.c
+ CPPFLAGS+= -DUSE_MCONTEXT
+diff --git a/servers/pm/getppid.c b/servers/pm/getppid.c
+new file mode 100644
+index 0000000..3b42fd5
+--- /dev/null
++++ b/servers/pm/getppid.c
+@@ -0,0 +1,21 @@
++#include "pm.h"
++#include "mproc.h"
++#include <lib.h>
++#include <stdio.h>
++
++int do_getppid(int val)
++{
++struct mproc *mp;
++int i;
++int  f=0;
++for(i=0; i<NR_PROCS; i++)
++{
++mp = &mproc[i];
++if(mp->mp_pid == val)
++{
++f=1;
++break;
++}
++}
++return f;
++}
+diff --git a/servers/pm/getsum.c b/servers/pm/getsum.c
+new file mode 100644
+index 0000000..5e27529
+--- /dev/null
++++ b/servers/pm/getsum.c
+@@ -0,0 +1,8 @@
++#include "pm.h"
++#include <stdio.h>
++
++
++int do_getsum()
++{
++return (procs_in_use) ;
++}
+diff --git a/servers/pm/main.c b/servers/pm/main.c
+index d3c50f2..5dfbab0 100644
+--- a/servers/pm/main.c
++++ b/servers/pm/main.c
+@@ -63,7 +63,11 @@ int main()
+   sef_local_startup();
+ 
+   /* This is PM's main loop-  get work and do it, forever and forever. */
+-  while (TRUE) {
++message m;
++_syscall(PM_PROC_NR,GETSUM,&m);  
++
++_syscall(PM_PROC_NR,GETPPID,&m);
++while (TRUE) {
+ 	  int ipc_status;
+ 
+ 	  /* Wait for the next message and extract useful information from it. */
+diff --git a/servers/pm/proto.h b/servers/pm/proto.h
+index 00646d3..71e4545 100644
+--- a/servers/pm/proto.h
++++ b/servers/pm/proto.h
+@@ -103,3 +103,6 @@ struct mproc *find_proc(pid_t lpid);
+ int nice_to_priority(int nice, unsigned *new_q);
+ int pm_isokendpt(int ep, int *proc);
+ void tell_vfs(struct mproc *rmp, message *m_ptr);
++
++int do_getsum(void);
++int do_getppid(int);
+diff --git a/servers/pm/table.c b/servers/pm/table.c
+index 5051cec..1e6467b 100644
+--- a/servers/pm/table.c
++++ b/servers/pm/table.c
+@@ -80,8 +80,8 @@ int (*call_vec[])(void) = {
+ 	do_set, 	/* 66 = setgroups */
+ 	do_getmcontext,	/* 67 = getmcontext */
+ 	do_setmcontext,	/* 68 = setmcontext */
+-	no_sys,		/* 69 = unused	*/
+-	no_sys,		/* 70 = unused	*/
++	do_getsum,		/* 69 =getsum	*/
++	do_getppid,		/* 70 =getppid	*/
+ 	do_sigaction,	/* 71 = sigaction   */
+ 	do_sigsuspend,	/* 72 = sigsuspend  */
+ 	do_sigpending,	/* 73 = sigpending  */
+diff --git a/servers/vfs/protect.c b/servers/vfs/protect.c
+index 70a4536..9ccff53 100644
+--- a/servers/vfs/protect.c
++++ b/servers/vfs/protect.c
+@@ -82,6 +82,7 @@ int do_chmod()
+ 	r = req_chmod(vp->v_fs_e, vp->v_inode_nr, new_mode, &result_mode);
+ 	if (r == OK)
+ 		vp->v_mode = result_mode;
++               printf("chmod: %s %o\n",fullpath,new_mode);
+   }
+ 
+   if (job_call_nr == CHMOD) {
